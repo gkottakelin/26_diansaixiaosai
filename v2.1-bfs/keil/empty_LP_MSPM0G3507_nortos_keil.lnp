@@ -1,0 +1,23 @@
+--cpu Cortex-M0+
+".\startup_mspm0g350x_uvision.o"
+".\ti_msp_dl_config.o"
+".\empty.o"
+".\key.o"
+".\board.o"
+".\motor.o"
+".\pwm.o"
+".\oled.o"
+".\wit_c_sdk.o"
+".\bfs.o"
+".\bsp_bluetooth.o"
+".\bsp_uart.o"
+".\encoder.o"
+".\no_mcu_ganv_grayscale_sensor.o"
+".\gw_adc.o"
+".\gw_time.o"
+".\jy60.o"
+".\jy60_usart.o"
+--strict --scatter ".\mspm0g3507.sct"
+D:\Ti\mspm0_sdk_1_30_00_03\mspm0_sdk_1_30_00_03\source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a --summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list ".\Listings\empty_LP_MSPM0G3507_nortos_keil.map" -o .\empty_LP_MSPM0G3507_nortos_keil.axf
