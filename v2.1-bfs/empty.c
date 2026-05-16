@@ -43,13 +43,16 @@ key3:依次输入完所有途径点后确认
 前视觉：
 识别红绿灯，识别障碍物
 
-在路口的逻辑，进入路口后，
-1.当左右视觉的路口变量均改变时，car_now_xy,car_now_dir刷新得到新的当前位置
+刷新位置函数触发：左右视觉的路口变量均改变
+
+在路口的逻辑
+1.当左右视觉的路口变量均改变时，代表进入路口，car_now_xy,car_now_dir刷新得到新的当前位置
 2.路径规划
-3.如果前进方向改变：先转弯，后直行
+3.如果前进方向改变：先原地转弯，后直行
 4.当离开路口后，接收到左右视觉的路口变量均改变，再次刷新当前位置
 5.若转弯后识别到障碍物，则代入障碍物坐标，重新规划路线
 */
+
 #include "math.h"
 #include "ti_msp_dl_config.h"
 #include "board.h"
@@ -101,17 +104,28 @@ typedef struct {
 */
 int now_x , now_y ;        //小车当前位置
 NavDirection car_now_dir = DIR_UP; //小车当前运动方向 ，默认摆放位置向上
+
 StepDecision car_next_action ;  //小车下一步的坐标，新朝向，需要执行的动作
+
+uint8_t get_j = 0; //是否到达J点的标志，0为未到达，1为已到达
 
 /* 途径点设置 */
 // 可供选择的赛题节点 (起点 O, 途径点 A~J)
 static const char available_nodes[11] = {'O', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'};
 char task_sequence[32] = {0}; //途径点
 
-
+/*左右视觉返回参数*/
 int lukou_flag1 = 0 ; //在路口为0 ，不在路口为1
 int lukou_flag2 = 0 ;
 int zuo_num  ,  you_num ;//左右视觉返回的数值
+int new_lukou_flag1 = 0 ; //视觉发送的lukou_flag暂存，作为比较
+int new_lukou_flag2 = 0 ; //
+int tingchewei = 0 ; //当识别到车位时，tingchewei=1，未识别到车位时，tingchewei=0
+
+
+/*前视觉返回参数*/
+int red_light_flag = 0 ; //红绿灯标志，识别到红灯为1，绿灯、其他为2
+int obstacle_flag = 0 ; //障碍物标志，识别到障碍物为1，未识别到为0
 
 /*
 道路循迹    
@@ -153,7 +167,19 @@ void update_cur_xy()
 */
 void car_turn_dir(MoveAction action)  //原地转向函数
 {
-
+    if(action == ACT_TURN_RIGHT){
+        Left_Motor_SetPWM(150);
+        Right_Motor_SetPWM(-150);
+        delay_ms(1000);
+    }else if(action == ACT_TURN_LEFT){
+        Left_Motor_SetPWM(-150);
+        Right_Motor_SetPWM(150);
+        delay_ms(1000);
+    }else if(action == ACT_U_TURN){
+        Left_Motor_SetPWM(150);
+        Right_Motor_SetPWM(-150);
+        delay_ms(2000); //假设转180度需要1秒，实际需要根据测试调整
+    }
 }
 
 /*
@@ -325,320 +351,248 @@ int main(void)
     NVIC_EnableIRQ(UART_1_INST_INT_IRQN);
     NVIC_ClearPendingIRQ(UART_2_INST_INT_IRQN);
     NVIC_EnableIRQ(UART_2_INST_INT_IRQN);
-		NVIC_ClearPendingIRQ(UART_3_INST_INT_IRQN);
+	NVIC_ClearPendingIRQ(UART_3_INST_INT_IRQN);
     NVIC_EnableIRQ(UART_3_INST_INT_IRQN);
     NVIC_ClearPendingIRQ(TIMER_0_INST_INT_IRQN);
     NVIC_EnableIRQ(TIMER_0_INST_INT_IRQN);
     NVIC_ClearPendingIRQ(TIMER_0_INST_INT_IRQN);
     NVIC_EnableIRQ(TIMER_0_INST_INT_IRQN);
 	
-		now_x = 0 ;
-		now_y = 0 ;
-		car_now_dir = DIR_UP ;
+	now_x = 0 ;
+	now_y = 0 ;
+	car_now_dir = DIR_UP ;
+
+    lukou_flag1 = 0;
+    lukou_flag2 = 0;
+    new_lukou_flag1 = 0;
+    new_lukou_flag2 = 0;
+
+    car_next_action.action = ACT_STOP ;
+    car_next_action.next_dir = DIR_UP ;
+    car_next_action.next_pos.x = 0 ;
+    car_next_action.next_pos.y = 0 ;
+
 	
-		int set_tujingdian_flag = 0;
-			
-		while(!set_tujingdian_flag)
-		{
-		
-		}
-		OLED_ShowString(1,1,"ok");
-		delay_ms(1000);
-		OLED_Clear();
-		search_path(0,0,0xff,0xff);//前两个参数是当前位置的xy，不用管目的地参数，目的地是预存好的，会跟着你到的位置更新
-								//后两个参数表示在往哪个坐标走的时候遇到障碍物，如果正常行驶就赋值为0xff
-	for(int i=0;i<path_len;++i){
-		OLED_ShowNum(i/3+1,i%3*5+1,path[i].x,1);//路径存放在path[]中，这是个x，y坐标结构体，每次路径的长度是path_len
-		OLED_ShowNum(i/3+1,i%3*5+3,path[i].y,1);
-	}
-	delay_ms(5000);
-	OLED_Clear();
-	
-	search_path(1,3,2,3);
-	for(int i=0;i<path_len;++i){
-		OLED_ShowNum(i/3+1,i%3*5+1,path[i].x,1);
-		OLED_ShowNum(i/3+1,i%3*5+3,path[i].y,1);
-	}
-	delay_ms(5000);
-	OLED_Clear();
-	
-	search_path(2,3,0xff,0xff);
-	for(int i=0;i<path_len;++i){
-		OLED_ShowNum(i/3+1,i%3*5+1,path[i].x,1);
-		OLED_ShowNum(i/3+1,i%3*5+3,path[i].y,1);
-	}
-	
-	while(1);
-	
-    while (choose == 0) {
-        OLED_ShowNum(1, 1, 6, 1);
-        if (Key4_GetNum() == 1)
-            choose = 1;
-        if (Key5_GetNum() == 1)
-            choose = 2;
-    }
-	
-//	while(1){
-//		Left_Motor_SetPWM(191);	
-//        Right_Motor_SetPWM(200);
-//	}
-	
+    /*设置途径点*/
+    char *targets = Set_Targets_Via_Keys();
     OLED_Clear();
-    if (choose == 1) {
-        while (Key4_GetNum() == 0) {
-            OLED_ShowString(1, 10, "white");
-            No_Mcu_Ganv_Sensor_Task_Without_tick(&sensor);
-            Get_Anolog_Value(&sensor, Anolog);
-            OLED_ShowNum(1, 1, Anolog[0], 4);
-            OLED_ShowNum(1, 6, Anolog[1], 4);
-            OLED_ShowNum(2, 1, Anolog[2], 4);
-            OLED_ShowNum(2, 6, Anolog[3], 4);
-            OLED_ShowNum(3, 1, Anolog[4], 4);
-            OLED_ShowNum(3, 6, Anolog[5], 4);
-            OLED_ShowNum(4, 1, Anolog[6], 4);
-            OLED_ShowNum(4, 6, Anolog[7], 4);
-            memset(rx_buff, 0, 256);
-            delay_ms(1);
-        }
-        for (int i = 0; i < 8; ++i)
-            white[i] = Anolog[i];
-        OLED_Clear();
-        OLED_ShowString(1, 10, "black");
-        delay_ms(500);
-        while (Key4_GetNum() == 0) {
-            No_Mcu_Ganv_Sensor_Task_Without_tick(&sensor);
-            Get_Anolog_Value(&sensor, Anolog);
-            OLED_ShowNum(1, 1, Anolog[0], 4);
-            OLED_ShowNum(1, 6, Anolog[1], 4);
-            OLED_ShowNum(2, 1, Anolog[2], 4);
-            OLED_ShowNum(2, 6, Anolog[3], 4);
-            OLED_ShowNum(3, 1, Anolog[4], 4);
-            OLED_ShowNum(3, 6, Anolog[5], 4);
-            OLED_ShowNum(4, 1, Anolog[6], 4);
-            OLED_ShowNum(4, 6, Anolog[7], 4);
-            memset(rx_buff, 0, 256);
-            delay_ms(1);
-        }
-        for (int i = 0; i < 8; ++i)
-            black[i] = Anolog[i];
-        OLED_Clear();
-        OLED_ShowString(1, 1, " ok           ok");
-		Bluetooth_SendString("@A1NJ32\r\n");
-		Bluetooth_SendString("@130mm/s\r\n");
-        delay_ms(1000);
-        OLED_Clear();
-        No_MCU_Ganv_Sensor_Init(&sensor, white, black);
+    OLED_ShowString(1,1,"input map"); //导入途径点字符串，解析并存入全局变量targets中
+    delay_ms(1000);
+    OLED_Clear();
+    /*将途径点导入bfs函数*/
+    store_targets(targets);
+    OLED_ShowString(1,1,"ok");
+    delay_ms(1000);
+    OLED_Clear();
 
-		int c=0;
-        while (1) {
-            No_Mcu_Ganv_Sensor_Task_Without_tick(&sensor);
-            Digtal = Get_Digtal_For_User(&sensor);
-            Get_Normalize_For_User(&sensor, Normal);
-            memset(rx_buff, 0, 256);
-            OLED_ShowBinNum(1, 1, Digtal, 8);
-            delay_ms(1);                                   //灰度
-            uart2_process();
-            JY60_GetData();
-            uart1_process();
-            
-            if(c<5)
-              c++;
-            if(c==5&&(chao==0||chao==6))				
-			      {transbluetooth();
-						c=0;}
-                uint16_t dist = distance_value;
-                uint8_t conf = confidence_value;
-                OLED_ShowNum(2, 1, dist, 4);
-                //  OLED_ShowNum(2, 9, conf, 2);
-                //  OLED_ShowSignedNum(3, 1, fAngle[0], 3);
-                //  OLED_ShowSignedNum(3, 6, fAngle[1], 3);
-                OLED_ShowSignedNum(3, 11, fAngle[2], 3);
-                distance_ready = 0; // 清除标志
-                distance = dist;
-                if ((dist <= 200) && dist != 0)
-                    speed = speed - 5;
-                if ((dist > 200) && dist != 0)
-                    speed = speed + 4;
-                if ((dist > 300) || (dist == 0))
-                    speed = max_speed;
-                if (speed >= max_speed)
-                    speed = max_speed;
-            
-            OLED_ShowSignedNum(4, 1,Current1 , 4);
-            //OLED_ShowSignedNum(4, 8, g_motor_speed, 5);
+    
+    /*开始运行在地图中导航*/
+    /*到达J点后跳出while循环*/
+    /*
+    期间在OLED显示当前坐标，当前方向
+    下一步坐标，下一步方向
+    */
+ /*
 
-           if ((distance <= 210) && (distance != 0) && Digtal == 255 && chao == 0&&fAngle[2]>0) {
-                Left_Motor_SetPWM(-150);
-                Right_Motor_SetPWM(150);
-                chao = 1;
-            }
-						   if ((distance <= 210) && (distance != 0) && Digtal == 255 && chao == 0&&fAngle[2]<0) {
-                Left_Motor_SetPWM(150);
-                Right_Motor_SetPWM(-150);
-                chao = 7;
-            }
-            if (chao == 1 && ((fAngle[2] >= 160) || (fAngle[2] <= -160))) {
-                Left_Motor_SetPWM(390);
-                Right_Motor_SetPWM(400);
-                delay_ms(1000);
-                Left_Motor_SetPWM(150);
-                Right_Motor_SetPWM(-150);
-                chao = 2;
-            }
-						if (chao == 7 && ((fAngle[2] >= 160) || (fAngle[2] <= -160))) {
-                Left_Motor_SetPWM(390);
-                Right_Motor_SetPWM(400);
-                delay_ms(1000);
-                Left_Motor_SetPWM(-150);
-                Right_Motor_SetPWM(150);
-                chao = 8;
-            }
-            if (chao == 2 && (fAngle[2] >= 80) && (fAngle[2] <= 100)) {
-                Left_Motor_SetPWM(380);
-                Right_Motor_SetPWM(400);
-                delay_ms(3000);
-                Left_Motor_SetPWM(150);
-                Right_Motor_SetPWM(-150);
-                chao = 3;
-            }
-						if (chao == 8 && (fAngle[2] >=-100) && (fAngle[2] <=-75)) {
-                Left_Motor_SetPWM(390);
-                Right_Motor_SetPWM(400);
-                delay_ms(3000);
-                Left_Motor_SetPWM(-150);
-                Right_Motor_SetPWM(150);
-                chao = 9;
-            }
-            if (chao == 3 && (fAngle[2] >= 55) && (fAngle[2] <= 70)) {
-                Left_Motor_SetPWM(290);
-                Right_Motor_SetPWM(300);
-                Delay_ms(1000);
-                Left_Motor_SetPWM(192);
-                Right_Motor_SetPWM(200);
-                chao = 4;
-            }
-					if (chao == 9 && (fAngle[2] >=-70) && (fAngle[2] <=-55)) {
-                Left_Motor_SetPWM(290);
-                Right_Motor_SetPWM(300);
-                Delay_ms(1000);
-                Left_Motor_SetPWM(192);
-                Right_Motor_SetPWM(200);
-                chao = 10;
-            }
-            if (chao == 4 && Digtal < 255) {
-                chao = 5;
-                delay_ms(200);
-                Left_Motor_SetPWM(-100);
-                Right_Motor_SetPWM(200);
-            }
-						 if (chao == 10 && Digtal < 255) {
-                chao = 11;
-                delay_ms(200);
-                Left_Motor_SetPWM(200);
-                Right_Motor_SetPWM(-100);
-            }
-            if (chao == 5 && (fAngle[2] >= 75) && (fAngle[2] <= 100))
-                chao = 6;
-						 if (chao == 11 && (fAngle[2] >=-100) && (fAngle[2] <=-75))
-                chao = 6;
-            if ((back == 0) && (Digtal == 0) && ((chao == 0) || (chao == 6))) {
-                tuo = fAngle[2];
-                back = back + 1;
-                Left_Motor_SetPWM(150);
-                Right_Motor_SetPWM(-150);
-            }
-						
-            if ((fAngle[2] >= -10) && (fAngle[2] <= 10) && back == 1)
-                back = back + 1;
-            if (back > 1 && Digtal == 0)
-                while (1) {
-                    Left_Motor_SetPWM(0);
-                    Right_Motor_SetPWM(0);
+在路口的逻辑
+1.当左右视觉的路口变量均改变时，代表进入路口，car_now_xy,car_now_dir刷新得到新的当前位置
+2.路径规划
+3.如果前进方向改变：先原地转弯，后直行
+4.当离开路口后，接收到左右视觉的路口变量均改变，再次刷新当前位置
+5.若转弯后识别到障碍物，则代入障碍物坐标，重新规划路线
+6.转弯，
+*/
+
+    while(get_j == 0) //外部中断判定是否到达，防止延迟  暂时放在void TIMER_0_INST_IRQHandler(void)
+    {
+        /*读取视觉参数*/
+        /*左右视觉返回参数*/
+        new_lukou_flag1 = ;  //在路口为0 ，不在路口为1
+        new_lukou_flag2 = ;
+        zuo_num  =  ;//左右视觉返回的数值
+        you_num  =  ;//左右视觉返回的数值
+
+        /*前视觉返回参数*/
+        red_light_flag =  ; //红绿灯标志，识别到红灯为1，绿灯、其他为2
+        obstacle_flag =  ; //障碍物标志，识别到障碍物为1，未识别到为0
+
+        /*识别红绿灯*/
+        while(red_light_flag == 1)
+        {
+            red_light_flag = ;//读取红绿灯标志，直到非红
+            //停车
+            Left_Motor_SetPWM(0);
+            Right_Motor_SetPW(0);
+            oled_ShowString(3, 1, "stop");
+        }
+        oled_ShowString(3, 1, "run ");
+
+        //更新坐标
+         if(lukou_flag1 != new_lukou_flag1 && lukou_flag2 != new_lukou_flag2) {
+            update_cur_xy(); //根据当前运动方向更新坐标
+            lukou_flag1 = new_lukou_flag1 ;
+            lukou_flag2 = new_lukou_flag2;
+        }
+        //显示当前位置与运动方向
+        OLED_ShowNum(1, 1, now_x, 2);
+        OLED_ShowNum(1, 4, now_y, 2);
+        if(car_now_dir == DIR_UP) {
+            OLED_ShowString(1, 7, "UP ");
+        } else if(car_now_dir == DIR_RIGHT) {
+            OLED_ShowString(1, 7, "you");
+        } else if(car_now_dir == DIR_DOWN) {
+            OLED_ShowString(1, 7, "xia");
+        } else if(car_now_dir == DIR_LEFT) {
+            OLED_ShowString(1, 7, "zuo");
+        }
+        
+
+        //抵达路口或者遇到障碍物后，进行路径规划 //在路口为0 ，不在路口为1
+        //如果识别到障碍物，代入障碍物坐标，重新规划路线
+        /*障碍物只会出现在路上
+        当车在路口发现障碍物，则障碍物坐标为小车面前的坐标
+        当车在道路上发现障碍物，则障碍物坐标为小车当前坐标
+        */
+       
+        if((lukou_flag1 == 0 && lukou_flag2 == 0) || obstacle_flag == 1) {
+            
+            if(obstacle_flag == 1)
+            {
+                uint8_t obs_x, obs_y;
+                if(lukou_flag1 == 0 && lukou_flag2 == 0) { //在路口发现障碍物
+                    obs_x = now_x;
+                    obs_y = now_y;
+                    if(car_now_dir == DIR_UP) {
+                        obs_y += 1;
+                    } else if(car_now_dir == DIR_RIGHT) {
+                        obs_x += 1;
+                    } else if(car_now_dir == DIR_DOWN) {
+                        obs_y -= 1;
+                    } else if(car_now_dir == DIR_LEFT) {
+                        obs_x -= 1;
+                    }
+                } else { //在道路上发现障碍物
+                    obs_x = now_x;
+                    obs_y = now_y;
                 }
-            if (back != 1 && ((chao == 0) || (chao == 6)))
-                heixian_track(Digtal, speed);
+                car_next_action = search_path(now_x, now_y, car_now_dir, obs_x, obs_y); //代入障碍物坐标重新规划路线
+            }
+            else if(lukou_flag1 == 0 && lukou_flag2 == 0)
+            {
+                car_next_action = search_path(now_x, now_y, car_now_dir, 0xff, 0xff); //正常路径规划
+            }
         }
-    } else {
-        OLED_Clear();
-		
-		{OLED_ShowString(1,1,"x:");
-		int tempxy=0;
-		while(!Key4_GetNum()){
-			OLED_ShowNum(1,3,tempxy*10,2);
-			if(Key5_GetNum())tempxy++;
-			if(Key6_GetNum())tempxy--;
-			if(tempxy>=10)tempxy-=10;
-			if(tempxy<0)tempxy+=10;
-		}
-		heng=tempxy*10;
-		tempxy=0;
-		while(!Key4_GetNum()){
-			OLED_ShowNum(1,3,heng+tempxy,2);
-			if(Key5_GetNum())tempxy++;
-			if(Key6_GetNum())tempxy--;
-			if(tempxy>=10)tempxy-=10;
-			if(tempxy<0)tempxy+=10;
-		}
-		heng+=tempxy;
-		tempxy=0;
-		OLED_ShowString(2,1,"y:");
-		while(!Key4_GetNum()){
-			OLED_ShowNum(2,3,tempxy*10,2);
-			if(Key5_GetNum())tempxy++;
-			if(Key6_GetNum())tempxy--;
-			if(tempxy>=10)tempxy-=10;
-			if(tempxy<0)tempxy+=10;
-		}
-		shu=tempxy*10;
-		tempxy=0;
-		while(!Key4_GetNum()){
-			OLED_ShowNum(2,3,shu+tempxy,2);
-			if(Key5_GetNum())tempxy++;
-			if(Key6_GetNum())tempxy--;
-			if(tempxy>=10)tempxy-=10;
-			if(tempxy<0)tempxy+=10;
-		}
-		shu+=tempxy;
-		OLED_ShowString(2, 7, " ok!");
-        delay_ms(2000);
-	}
-		
-        float angle_red;
-        float angle_deg;
-        angle_red = atan2(heng, shu);
-        angle_deg = -angle_red * 180 / 3.1415;
-	      chang=sqrt(heng*heng+shu*shu)*100;
-        Left_Motor_SetPWM(110);
-        Right_Motor_SetPWM(-110);
-        while (1) {
-            uart2_process();
-            JY60_GetData();
-            OLED_ShowSignedNum(3, 11, fAngle[2], 3);
-            OLED_ShowSignedNum(3, 3, angle_deg, 3);
-            //OLED_ShowSignedNum(4, 1, total_mm, 5);
-            OLED_ShowSignedNum(4, 7, enc_delta, 5);
-            if (fAngle[2] <= angle_deg)
-                zhuan = 1;
-            if (fAngle[2] == angle_deg && zhuan == 1) {
-                Left_Motor_SetPWM(201);
-                Right_Motor_SetPWM(200);
-            }
-            if (fAngle[2] > angle_deg && zhuan == 1) {
-                Left_Motor_SetPWM(220);
-                Right_Motor_SetPWM(200);
-            }
-            if (fAngle[2] < angle_deg && zhuan == 1) {
-                Left_Motor_SetPWM(200);
-                Right_Motor_SetPWM(220);
-            }   
-						float total_mm = Encoder_GetTotalDistance_mm();
-			OLED_ShowSignedNum(4, 1, total_mm, 5);
-						if(total_mm>=chang)
-						   while(1)
-							{Left_Motor_SetPWM(0);
-              Right_Motor_SetPWM(0);}
+
+        //显示下一步的行动
+        OLED_ShowNum(2, 1, car_next_action.next_pos.x, 2);
+        OLED_ShowNum(2, 4, car_next_action.next_pos.y, 2);
+        if(car_next_action.next_dir == DIR_UP) {
+            OLED_ShowString(2, 7, "UP ");
+        } else if(car_next_action.next_dir == DIR_RIGHT) {
+            OLED_ShowString(2, 7, "you");
+        } else if(car_next_action.next_dir == DIR_DOWN) {
+            OLED_ShowString(2, 7, "xia");
+        } else if(car_next_action.next_dir == DIR_LEFT) {
+            OLED_ShowString(2, 7, "zuo");
+        }
+
+        
+        //调整方向，用的delay，所以不干扰循迹，以及转弯过程中的路口flag跳动
+       if(car_now_dir != car_next_action.next_dir) {
+            car_turn_dir(car_next_action.action);
+            car_now_dir = car_next_action.next_dir;
+        }
+
+        track(zuo_num, you_num, 200); //循迹前进，参数为左右视觉返回的数值，根据数值调整运动状态
+
+    }
+    OLED_Clear();
+    OLED_ShowString(1,1,"get J")
+    /*从J点到停车场道闸
+    1.转向朝右方向
+    2.直行期间读取前视觉，闸道关闭发送红灯，闸道开启发送绿灯
+    */
+    if(car_now_dir == DIR_UP)
+    {
+        car_turn_dir(ACT_TURN_RIGHT);
+    
+    }
+    else if(car_now_dir == DIR_DOWN)
+    {
+        car_turn_dir(ACT_TURN_LEFT);
+    }
+    else if(car_now_dir == DIR_LEFT)
+    {
+        car_turn_dir(ACT_U_TURN);
+    }
+    //方向调转完成
+    //直行1.3米，根据闸道开关状态调整，视觉复用obstacle_flag参数，识别到障碍物为1，未识别到为0
+    int distance_to_gate = 1300; //单位mm，假设从J点到道闸的距离为1.3米
+    int distance = 0; //估算的行驶距离
+    int distance_jinru_tingchechang = 1800 ;
+    int get_in = 0;
+    while(get_in == 0)
+    {
+        track(zuo_num, you_num, 200); //循迹前进，参数为左右视觉返回的数值，根据数值调整运动状态
+        distance += Current1 * 20 / 1000; //根据速度估算距离，Current1单位mm/s，20ms更新一次，所以乘以20/1000
+
+        obstacle_flag = ; //读取前视觉障碍物标志，识别到障碍物为1，未识别到为0
+
+        //抵达闸道，根据视觉识别结果停车或继续前进
+        if(distance >= distance_to_gate && obstacle_flag == 1) {
+            //抵达闸道且识别到障碍物（假设障碍物即为关闭的闸道），停车
+            Left_Motor_SetPWM(0);
+            Right_Motor_SetPWM(0);
+            OLED_ShowString(3, 1, "wait gate");
+        } else if(distance >= distance_to_gate && obstacle_flag == 0) {
+            //抵达闸道且未识别到障碍物（假设未识别到障碍物即为开启的闸道），继续前进
+            OLED_ShowString(3, 1, "go on ");
+        }
+
+        if(distance >= distance_jinru_tingchechang) {
+            get_in = 1; //进入停车场
         }
     }
+    OLED_Clear();
+    OLED_ShowString(1,1,"kaishi tingche");
+    /*进入停车场后，寻找停车位并停车
+    1.调整车头方向向下
+    2.直行
+    3.根据左视觉返回的数值调整运动状态，寻找空车位
+    4.当识别到车位时，停车
+    5.进入车位
+    */
+    int park_finished = 0;
+    car_turn_dir(ACT_TURN_RIGHT);
+     //方向调转完成
+     while(park_finished == 0)
+     {
+          track(zuo_num, you_num, 150); //循迹前进，参数为左右视觉返回的数值，根据数值调整运动状态
+    
+          tingchewei = ; //读取左视觉返回的车位识别标志，当识别到车位时，tingchewei=1，未识别到车位时，tingchewei=0
+    
+          if(tingchewei == 1) {
+                //识别到车位，停车
+                Left_Motor_SetPWM(0);
+                Right_Motor_SetPWM(0);
+                OLED_ShowString(3, 1, "get park");
+                delay_ms(1000);
+
+                car_turn_dir(ACT_TURN_lEFT); //调整车头方向，假设车位在左侧，实际需要根据车位位置调整转向
+
+                int distance_to_park = 500; //假设车位深度为0.5米
+                int distance_in_park = 0;
+                while(distance_in_park < distance_to_park) {
+                    track(zuo_num, you_num, 100); //继续前进进入车位
+                    distance_in_park += Current1 * 20 / 1000; //根据速度估算进入车位的距离
+                }
+                park_finished = 1;
+          }
+     }
+    OLED_Clear();
+    OLED_ShowString(1,1,"finish");
+    
+
 }
 
 void TIMER_0_INST_IRQHandler(void)
@@ -650,6 +604,12 @@ void TIMER_0_INST_IRQHandler(void)
     {
         if(DL_TIMER_IIDX_ZERO)
         {
+            //检测是否到达J点
+            if(now_x == 6 && now_y == 8)
+            {
+                get_j = 1;
+            }
+
             times++;
             HD_count++;
            // count += Key3_GetNum();
